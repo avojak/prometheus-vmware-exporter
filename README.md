@@ -1,3 +1,7 @@
+Contains fixes from this PR: https://github.com/devinotelecom/prometheus-vmware-exporter/pull/22
+
+---
+
 # prometheus-vmware-exporter
 Collect metrics ESXi Host
 

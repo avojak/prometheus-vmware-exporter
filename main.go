@@ -1,17 +1,18 @@
 package main
 
 import (
-	"./controller"
 	"flag"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"os"
+	"prometheus-vmware-exporter/controller"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
-	listen   = ":9512"
+	listen   = ":9879"
 	host     = ""
 	username = ""
 	password = ""
@@ -32,35 +33,48 @@ func init() {
 	flag.StringVar(&password, "password", env("ESX_PASSWORD", password), "password for ESX")
 	flag.StringVar(&logLevel, "log", env("ESX_LOG", logLevel), "Log level must be, debug or info")
 	flag.Parse()
-	controllers.RegistredMetrics()
+	controller.RegistredMetrics()
 	collectMetrics()
 }
 
-func collectMetrics() {
+func collectMetrics() error {
 	logger, err := initLogger()
 	if err != nil {
 		fmt.Println(err.Error())
+		return err
 	}
-	go func() {
-		logger.Debugf("Start collect host metrics")
-		controllers.NewVmwareHostMetrics(host, username, password, logger)
-		logger.Debugf("End collect host metrics")
-	}()
-	go func() {
-		logger.Debugf("Start collect datastore metrics")
-		controllers.NewVmwareDsMetrics(host, username, password, logger)
-		logger.Debugf("End collect datastore metrics")
-	}()
-	go func() {
-		logger.Debugf("Start collect VM metrics")
-		controllers.NewVmwareVmMetrics(host, username, password, logger)
-		logger.Debugf("End collect VM metrics")
-	}()
+
+	logger.Debugf("Start collect host metrics")
+	if err := controller.NewVmwareHostMetrics(host, username, password, logger); err != nil {
+		logger.Errorf("Error collect host metrics")
+		return err
+	}
+	logger.Debugf("End collect host metrics")
+
+	logger.Debugf("Start collect VM metrics")
+	if err := controller.NewVmwareVmMetrics(host, username, password, logger); err != nil {
+		logger.Errorf("Error collect host metrics")
+		return err
+	}
+	logger.Debugf("End collect VM metrics")
+
+	logger.Debugf("Start collect datastore metrics")
+	if err := controller.NewVmwareDsMetrics(host, username, password, logger); err != nil {
+		logger.Errorf("Error collect host metrics")
+		return err
+	}
+	logger.Debugf("End collect datastore metrics")
+
+	return nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		collectMetrics()
+		if err := collectMetrics(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("Error occurred: %s\n", err)))
+			return
+		}
 	}
 	h := promhttp.Handler()
 	h.ServeHTTP(w, r)
@@ -101,7 +115,8 @@ func main() {
 			<h1>VMware Exporter</h1>
 			<p><a href="` + "/metrics" + `">Metrics</a></p>
 			</body>
-			</html>`))
+			</html>
+		`))
 	})
 	logger.Fatal(http.ListenAndServe(listen, nil))
 }
